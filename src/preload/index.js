@@ -1,20 +1,28 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from 'electron';
 
-// Custom APIs for renderer
-const api = {}
-
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
+contextBridge.exposeInMainWorld('electronAPI', {
+  // 打印机相关
+  getPrinters: () => ipcRenderer.invoke('get-printers'),
+  checkPrinterStatus: () => ipcRenderer.invoke('check-printer-status'),
+  printReceipt: (data) => ipcRenderer.invoke('print-receipt', data),
+  printTestPage: (printerName) => ipcRenderer.invoke('print-test-page', printerName),
+  printEscPos: (options) => ipcRenderer.invoke('print-esc-pos', options),
+  setDefaultPrinter: (printerName) => ipcRenderer.invoke('set-default-printer', printerName),
+  
+  // USB设备
+  detectUsbPrinters: () => ipcRenderer.invoke('detect-usb-printers'),
+  installPrinterDriver: (driverPath) => ipcRenderer.invoke('install-printer-driver', driverPath),
+  
+  // 对话框
+  showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
+  showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
+  
+  // 事件监听
+  onUsbDeviceChange: (callback) => {
+    ipcRenderer.on('usb-device-change', (event, ...args) => callback(...args));
+  },
+  
+  removeUsbDeviceChange: () => {
+    ipcRenderer.removeAllListeners('usb-device-change');
   }
-} else {
-  window.electron = electronAPI
-  window.api = api
-}
+});

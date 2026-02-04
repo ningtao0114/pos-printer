@@ -1,38 +1,81 @@
 {
   "name": "pos-printer",
   "version": "1.0.0",
-  "description": "An Electron application with Vue",
+  "description": "Windows POS 打印程序",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
   "scripts": {
-    "format": "prettier --write .",
-    "lint": "eslint --cache .",
-    "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
-    "build:mac": "npm run build && electron-builder --mac",
-    "build:linux": "npm run build && electron-builder --linux"
+    "preview": "electron-vite preview",
+    "start": "electron .",
+    "build:win": "electron-vite build && electron-builder --win --x64",
+    "build:win-portable": "electron-vite build && electron-builder --win --x64 portable"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0"
+    "ant-design-vue": "^3.2.20",
+    "vue": "^3.3.4",
+    "vue-router": "^4.2.4",
+    "pinia": "^2.1.6",
+    "escpos": "^3.0.0-alpha.6",
+    "escpos-usb": "^2.0.0",
+    "escpos-network": "^2.0.2",
+    "usb": "^2.9.0",
+    "node-thermal-printer": "^4.1.2",
+    "lodash": "^4.17.21",
+    "dayjs": "^1.11.9",
+    "html2canvas": "^1.4.1"
   },
   "devDependencies": {
-    "@electron-toolkit/eslint-config": "^2.1.0",
-    "@electron-toolkit/eslint-config-prettier": "^3.0.0",
-    "@vitejs/plugin-vue": "^6.0.2",
-    "electron": "^39.2.6",
-    "electron-builder": "^26.0.12",
-    "electron-vite": "^5.0.0",
-    "eslint": "^9.39.1",
-    "eslint-plugin-vue": "^10.6.2",
-    "prettier": "^3.7.4",
-    "vite": "^7.2.6",
-    "vue": "^3.5.25",
-    "vue-eslint-parser": "^10.2.0"
+    "electron": "^25.0.0",
+    "electron-vite": "^1.0.27",
+    "vite": "^4.4.5",
+    "@vitejs/plugin-vue": "^4.3.0",
+    "unplugin-auto-import": "^0.16.6",
+    "unplugin-vue-components": "^0.25.1",
+    "@ant-design/icons-vue": "^6.1.0",
+    "electron-builder": "^24.4.0",
+    "sass": "^1.64.1"
+  },
+  "build": {
+    "appId": "com.pos.printer",
+    "productName": "POS打印机",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator",
+      "signAndEditExecutable": false,
+      "asar": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "deleteAppDataOnUninstall": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "POS打印机"
+    },
+    "extraResources": [
+      {
+        "from": "drivers",
+        "to": "drivers"
+      }
+    ],
+    "extraMetadata": {
+      "main": "./out/main/index.js"
+    }
   }
 }

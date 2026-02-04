@@ -1,24 +1,106 @@
-<script setup>
-import Versions from './components/Versions.vue'
+<template>
+  <a-config-provider>
+    <div id="app">
+      <a-layout style="min-height: 100vh">
+        <a-layout-header class="header">
+          <div class="logo">
+            <printer-outlined style="font-size: 24px; margin-right: 10px" />
+            <span style="font-size: 18px; font-weight: bold">POS打印机管理系统</span>
+          </div>
+          <div class="user-info">
+            <a-avatar icon="user" />
+            <span style="margin-left: 8px">管理员</span>
+          </div>
+        </a-layout-header>
+        
+        <a-layout>
+          <a-layout-sider width="200" style="background: #fff">
+            <a-menu
+              v-model:selectedKeys="selectedKeys"
+              mode="inline"
+              @click="handleMenuClick"
+            >
+              <a-menu-item key="dashboard">
+                <template #icon>
+                  <dashboard-outlined />
+                </template>
+                仪表盘
+              </a-menu-item>
+              <a-menu-item key="printers">
+                <template #icon>
+                  <printer-outlined />
+                </template>
+                打印机管理
+              </a-menu-item>
+              <a-menu-item key="orders">
+                <template #icon>
+                  <shopping-cart-outlined />
+                </template>
+                订单打印
+              </a-menu-item>
+              <a-menu-item key="settings">
+                <template #icon>
+                  <setting-outlined />
+                </template>
+                系统设置
+              </a-menu-item>
+            </a-menu>
+          </a-layout-sider>
+          
+          <a-layout-content style="padding: 20px">
+            <router-view />
+          </a-layout-content>
+        </a-layout>
+        
+        <a-layout-footer style="text-align: center">
+          POS打印机管理系统 ©2023
+        </a-layout-footer>
+      </a-layout>
+    </div>
+  </a-config-provider>
+</template>
 
-const ipcHandle = () => window.electron.ipcRenderer.send('ping')
+<script setup>
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
+import {
+  PrinterOutlined,
+  DashboardOutlined,
+  ShoppingCartOutlined,
+  SettingOutlined
+} from '@ant-design/icons-vue';
+
+const router = useRouter();
+const selectedKeys = ref(['dashboard']);
+
+const handleMenuClick = ({ key }) => {
+  router.push(`/${key}`);
+};
 </script>
 
-<template>
-  <img alt="logo" class="logo" src="./assets/electron.svg" />
-  <div class="creator">Powered by electron-vite</div>
-  <div class="text">
-    Build an Electron app with
-    <span class="vue">Vue</span>
-  </div>
-  <p class="tip">Please try pressing <code>F12</code> to open the devTool</p>
-  <div class="actions">
-    <div class="action">
-      <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">Documentation</a>
-    </div>
-    <div class="action">
-      <a target="_blank" rel="noreferrer" @click="ipcHandle">Send IPC</a>
-    </div>
-  </div>
-  <Versions />
-</template>
+<style>
+#app {
+  font-family: Avenir, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #001529;
+  color: white;
+  padding: 0 20px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+}
+</style>

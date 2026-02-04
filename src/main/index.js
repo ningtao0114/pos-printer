@@ -69,17 +69,31 @@ const createTray = () => {
 };
 
 const setupIpcHandlers = () => {
+  // 初始化检查
+  ipcMain.handle('is-main-process-ready', async () => {
+    return !!printerManager;
+  });
+  
   // 打印机相关
   ipcMain.handle('get-printers', async () => {
+    if (!printerManager) {
+      throw new Error('打印机管理器未初始化');
+    }
     return await printerManager.getAvailablePrinters();
   });
 
   ipcMain.handle('check-printer-status', async () => {
+    if (!printerManager) {
+      throw new Error('打印机管理器未初始化');
+    }
     return await printerManager.checkPrinterStatus();
   });
 
   ipcMain.handle('print-receipt', async (event, printData) => {
     try {
+      if (!printerManager) {
+        throw new Error('打印机管理器未初始化');
+      }
       const result = await printerManager.printReceipt(printData);
       return { success: true, data: result };
     } catch (error) {
@@ -88,24 +102,39 @@ const setupIpcHandlers = () => {
   });
 
   ipcMain.handle('print-test-page', async (event, printerName) => {
+    if (!printerManager) {
+      throw new Error('打印机管理器未初始化');
+    }
     return await printerManager.printTestPage(printerName);
   });
 
   ipcMain.handle('detect-usb-printers', async () => {
+    if (!usbDetector) {
+      throw new Error('USB检测器未初始化');
+    }
     return await usbDetector.detectUsbPrinters();
   });
 
   ipcMain.handle('install-printer-driver', async (event, driverPath) => {
+    if (!printerManager) {
+      throw new Error('打印机管理器未初始化');
+    }
     return await printerManager.installDriver(driverPath);
   });
 
   // ESC/POS 指令打印
   ipcMain.handle('print-esc-pos', async (event, { printerType, config, data }) => {
+    if (!printerManager) {
+      throw new Error('打印机管理器未初始化');
+    }
     return await printerManager.printEscPos(printerType, config, data);
   });
 
   // 设置默认打印机
   ipcMain.handle('set-default-printer', async (event, printerName) => {
+    if (!printerManager) {
+      throw new Error('打印机管理器未初始化');
+    }
     return await printerManager.setDefaultPrinter(printerName);
   });
 

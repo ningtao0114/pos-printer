@@ -1,59 +1,27 @@
-import escpos from 'escpos';
-import escposUSB from 'escpos-usb';
-import escposNetwork from 'escpos-network';
-import usb from 'usb';
+/**
+ * 打印机管理器 - 主管理器
+ */
+
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
+import UsbPrinter from './usb-printer.js';
+import NetworkPrinter from './network-printer.js';
+import BluetoothPrinter from './bluetooth-printer.js';
 
 const execAsync = promisify(exec);
-
-escpos.USB = escposUSB;
-escpos.Network = escposNetwork;
 
 class PrinterManager {
   constructor() {
     this.availablePrinters = [];
     this.defaultPrinter = null;
-    this.usbPrinters = [];
-    this.networkPrinters = [];
-  }
-
-  // 获取所有可用打印机
-  async getAvailablePrinters() {
-    try {
-      // 获取系统打印机
-      const systemPrinters = await this.getSystemPrinters();
-      
-      // 获取USB打印机
-      const usbPrinters = await this.detectUsbPrinters();
-      
-      // 合并打印机列表
-      this.availablePrinters = [
-        ...systemPrinters,
-        ...usbPrinters
-      ];
-      
-      // 获取默认打印机
-      this.defaultPrinter = await this.getDefaultPrinter();
-      
-      return {
-        systemPrinters,
-        usbPrinters,
-        defaultPrinter: this.defaultPrinter,
-        allPrinters: this.availablePrinters
-      };
-    } catch (error) {
-      console.error('获取打印机失败:', error);
-      throw error;
-    }
+    this.usbPrinter = new UsbPrinter();
   }
 
   // 获取系统打印机
   async getSystemPrinters() {
     try {
-      // Windows 使用 wmic 命令获取打印机信息
       const { stdout } = await execAsync('wmic printer get Name,PortName,DriverName,Default /format:csv');
       
       const printers = [];
@@ -116,53 +84,17 @@ class PrinterManager {
   // 检测USB打印机
   async detectUsbPrinters() {
     try {
-      const usbPrinters = [];
-      const devices = usb.getDeviceList();
+      const printers = this.usbPrinter.findPrinters();
       
-      // 常见打印机厂商ID
-      const printerVendors = [
-        { vendorId: 0x04b8, name: 'Epson' },
-        { vendorId: 0x04a9, name: 'Canon' },
-        { vendorId: 0x0922, name: 'Xprinter' },
-        { vendorId: 0x0483, name: 'Gainscha' },
-        { vendorId: 0x0416, name: 'Winpos' },
-        { vendorId: 0x0fe6, name: 'Bixolon' }
-      ];
-      
-      for (const device of devices) {
-        const vendorInfo = printerVendors.find(v => v.vendorId === device.deviceDescriptor.idVendor);
-        
-        if (vendorInfo) {
-          try {
-            device.open();
-            
-            const printerInfo = {
-              vendor: vendorInfo.name,
-              vendorId: device.deviceDescriptor.idVendor.toString(16),
-              productId: device.deviceDescriptor.idProduct.toString(16),
-              serialNumber: device.deviceDescriptor.iSerialNumber,
-              type: 'usb',
-              status: 'connected',
-              driverInstalled: true
-            };
-            
-            usbPrinters.push(printerInfo);
-            device.close();
-          } catch (error) {
-            usbPrinters.push({
-              vendor: vendorInfo.name,
-              vendorId: device.deviceDescriptor.idVendor.toString(16),
-              type: 'usb',
-              status: 'no_driver',
-              driverInstalled: false,
-              error: error.message
-            });
-          }
-        }
-      }
-      
-      this.usbPrinters = usbPrinters;
-      return usbPrinters;
+      return printers.map(printer => ({
+        vendor: printer.vendorName,
+        vendorId: printer.vendorId.toString(16).padStart(4, '0'),
+        productId: printer.productId.toString(16).padStart(4, '0'),
+        type: 'usb',
+        status: 'connected',
+        driverInstalled: true,
+        name: `${printer.vendorName} USB打印机`
+      }));
     } catch (error) {
       console.error('检测USB打印机失败:', error);
       return [];
@@ -235,18 +167,15 @@ class PrinterManager {
   // 使用系统打印
   async printWithSystem(printerName, data) {
     return new Promise((resolve, reject) => {
-      // 这里可以使用 Electron 的 webContents.print() 或调用 Windows 打印 API
-      // 简化实现：生成 HTML 然后打印
       const htmlContent = this.generateReceiptHtml(data);
-      
-      // 保存为临时文件然后打印
       const tempPath = path.join(process.env.TEMP, `receipt_${Date.now()}.html`);
+      
       fs.writeFileSync(tempPath, htmlContent);
       
-      const command = `start /wait mshta vbscript:Execute("CreateObject('Shell.Application').ShellExecute 'rundll32.exe', 'mshtml.dll,PrintHTML ""${tempPath}""', '', 'open', 1")(window.close)`;
+      // 使用系统命令打印
+      const command = `rundll32.exe mshtml.dll,PrintHTML "${tempPath}"`;
       
       exec(command, (error) => {
-        // 清理临时文件
         try { fs.unlinkSync(tempPath); } catch {}
         
         if (error) {
@@ -258,73 +187,25 @@ class PrinterManager {
     });
   }
 
-  // 使用 ESC/POS 打印
+  // 使用ESC/POS打印
   async printWithEscPos(printerType, config, data) {
     try {
-      let device;
-      
       if (printerType === 'usb') {
-        // USB 打印机
-        const devices = escpos.USB.findPrinter();
-        if (devices.length === 0) {
-          throw new Error('未找到USB打印机');
-        }
-        device = new escpos.USB(devices[0]);
+        // USB打印机
+        return await this.usbPrinter.printReceipt(data);
       } else if (printerType === 'network') {
         // 网络打印机
-        device = new escpos.Network(config.address, config.port || 9100);
+        const { host, port = 9100 } = config;
+        const networkPrinter = new NetworkPrinter(host, port);
+        return await networkPrinter.printReceipt(data);
       } else if (printerType === 'bluetooth') {
-        // 蓝牙打印机（Windows 上通常通过虚拟串口或网络）
-        // 这里简化处理
-        throw new Error('蓝牙打印暂未实现，请使用USB或网络打印机');
+        // 蓝牙打印机
+        const { comPort = 'COM3', baudRate = 9600 } = config;
+        const bluetoothPrinter = new BluetoothPrinter(comPort, baudRate);
+        return await bluetoothPrinter.printReceipt(data);
       } else {
         throw new Error('不支持的打印机类型');
       }
-      
-      const printer = new escpos.Printer(device);
-      
-      return new Promise((resolve, reject) => {
-        device.open((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          
-          printer
-            .font('a')
-            .align('ct')
-            .style('b')
-            .size(1, 1)
-            .text('=== 销售小票 ===')
-            .text(`单号: ${data.orderNo}`)
-            .text(`时间: ${new Date().toLocaleString()}`)
-            .text('----------------');
-          
-          data.items.forEach(item => {
-            printer.text(`${item.name} x${item.quantity} ￥${item.price}`);
-          });
-          
-          printer
-            .text('----------------')
-            .text(`小计: ￥${data.subtotal}`)
-            .text(`折扣: -￥${data.discount || 0}`)
-            .text(`合计: ￥${data.total}`)
-            .text(`实收: ￥${data.paid}`)
-            .text(`找零: ￥${data.change}`)
-            .text(' ')
-            .text('谢谢惠顾！')
-            .text(' ')
-            .text(data.footer || '')
-            .cut()
-            .close((err) => {
-              if (err) {
-                reject(err);
-              } else {
-                resolve({ success: true, message: 'ESC/POS打印完成' });
-              }
-            });
-        });
-      });
     } catch (error) {
       throw error;
     }
@@ -402,6 +283,47 @@ class PrinterManager {
     });
   }
 
+  // 获取所有打印机
+  async getAvailablePrinters() {
+    try {
+      const systemPrinters = await this.getSystemPrinters();
+      const usbPrinters = await this.detectUsbPrinters();
+      const networkPrinters = await this.detectNetworkPrinters();
+      const bluetoothPrinters = await BluetoothPrinter.detectPrinters();
+      
+      this.availablePrinters = [
+        ...systemPrinters,
+        ...usbPrinters,
+        ...networkPrinters,
+        ...bluetoothPrinters
+      ];
+      
+      this.defaultPrinter = await this.getDefaultPrinter();
+      
+      return {
+        systemPrinters,
+        usbPrinters,
+        networkPrinters,
+        bluetoothPrinters,
+        defaultPrinter: this.defaultPrinter,
+        allPrinters: this.availablePrinters
+      };
+    } catch (error) {
+      console.error('获取打印机失败:', error);
+      throw error;
+    }
+  }
+
+  // 检测网络打印机
+  async detectNetworkPrinters() {
+    try {
+      return await NetworkPrinter.detectPrinters();
+    } catch (error) {
+      console.error('检测网络打印机失败:', error);
+      return [];
+    }
+  }
+
   // 安装打印机驱动
   async installDriver(driverPath) {
     try {
@@ -409,9 +331,7 @@ class PrinterManager {
         throw new Error('驱动文件不存在');
       }
       
-      // Windows 安装打印机驱动的命令
       const command = `rundll32 printui.dll,PrintUIEntry /ia /c . /m "${driverPath}"`;
-      
       const { stdout, stderr } = await execAsync(command);
       
       if (stderr) {

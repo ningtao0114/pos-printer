@@ -5,6 +5,8 @@ class UsbDetector {
     this.devices = new Map();
     this.isMonitoring = false;
     this.onDeviceChange = null;
+    this.attachListener = null;
+    this.detachListener = null;
   }
 
   // 开始监控USB设备
@@ -16,17 +18,26 @@ class UsbDetector {
     // 初始扫描
     this.scanDevices();
     
-    // 监听USB设备插入
-    usb.on('attach', (device) => {
-      console.log('USB设备插入:', device);
-      this.handleDeviceAttach(device);
-    });
-    
-    // 监听USB设备拔出
-    usb.on('detach', (device) => {
-      console.log('USB设备拔出:', device);
-      this.handleDeviceDetach(device);
-    });
+    // 检查USB库是否支持事件监听
+    if (typeof usb.on === 'function') {
+      // 监听USB设备插入
+      this.attachListener = (device) => {
+        console.log('USB设备插入:', device);
+        this.handleDeviceAttach(device);
+      };
+      usb.on('attach', this.attachListener);
+      
+      // 监听USB设备拔出
+      this.detachListener = (device) => {
+        console.log('USB设备拔出:', device);
+        this.handleDeviceDetach(device);
+      };
+      usb.on('detach', this.detachListener);
+    } else {
+      // 如果不支持事件监听，使用轮询方式
+      console.log('USB库不支持事件监听，使用轮询方式检测设备变化');
+      this.startPolling();
+    }
     
     console.log('USB设备监控已启动');
   }
@@ -34,27 +45,63 @@ class UsbDetector {
   // 停止监控
   stopMonitoring() {
     this.isMonitoring = false;
-    usb.removeAllListeners('attach');
-    usb.removeAllListeners('detach');
+    
+    // 移除事件监听器
+    if (this.attachListener && usb.removeListener) {
+      usb.removeListener('attach', this.attachListener);
+    }
+    if (this.detachListener && usb.removeListener) {
+      usb.removeListener('detach', this.detachListener);
+    }
+    
+    // 停止轮询
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+    
     console.log('USB设备监控已停止');
+  }
+
+  // 开始轮询检测设备变化
+  startPolling() {
+    let previousDeviceCount = this.devices.size;
+    
+    this.pollInterval = setInterval(() => {
+      const currentDevices = this.scanDevices();
+      const currentDeviceCount = this.devices.size;
+      
+      if (currentDeviceCount > previousDeviceCount) {
+        console.log('检测到新USB设备插入');
+      } else if (currentDeviceCount < previousDeviceCount) {
+        console.log('检测到USB设备拔出');
+      }
+      
+      previousDeviceCount = currentDeviceCount;
+    }, 5000); // 每5秒检查一次
   }
 
   // 扫描当前USB设备
   scanDevices() {
     try {
       const deviceList = usb.getDeviceList();
-      this.devices.clear();
+      const currentDevices = new Map();
       
       deviceList.forEach(device => {
         const key = this.getDeviceKey(device);
-        this.devices.set(key, {
+        const deviceInfo = this.getDeviceInfo(device);
+        
+        currentDevices.set(key, {
           device,
-          info: this.getDeviceInfo(device),
+          info: deviceInfo,
           timestamp: Date.now()
         });
       });
       
-      return Array.from(this.devices.values()).map(d => d.info);
+      // 更新设备列表
+      this.devices = currentDevices;
+      
+      return Array.from(currentDevices.values()).map(d => d.info);
     } catch (error) {
       console.error('扫描USB设备失败:', error);
       return [];
@@ -101,90 +148,91 @@ class UsbDetector {
 
   // 获取设备唯一标识
   getDeviceKey(device) {
-    return `${device.busNumber}-${device.deviceAddress}`;
+    if (!device || !device.deviceDescriptor) {
+      return 'unknown-device';
+    }
+    return `${device.deviceDescriptor.idVendor}-${device.deviceDescriptor.idProduct}`;
   }
 
   // 获取设备信息
   getDeviceInfo(device) {
-    const descriptor = device.deviceDescriptor;
+    if (!device || !device.deviceDescriptor) {
+      return {
+        vendorId: 0,
+        productId: 0,
+        vendor: 'Unknown',
+        product: 'Unknown Device',
+        deviceType: 'unknown',
+        serialNumber: 0
+      };
+    }
     
     return {
-      vendorId: descriptor.idVendor.toString(16).padStart(4, '0'),
-      productId: descriptor.idProduct.toString(16).padStart(4, '0'),
-      vendorHex: `0x${descriptor.idVendor.toString(16).padStart(4, '0')}`,
-      productHex: `0x${descriptor.idProduct.toString(16).padStart(4, '0')}`,
-      manufacturer: descriptor.iManufacturer,
-      product: descriptor.iProduct,
-      busNumber: device.busNumber,
-      deviceAddress: device.deviceAddress,
-      deviceType: this.getDeviceType(descriptor)
+      vendorId: device.deviceDescriptor.idVendor,
+      productId: device.deviceDescriptor.idProduct,
+      vendor: this.getVendorName(device.deviceDescriptor.idVendor),
+      product: this.getProductName(device.deviceDescriptor.idVendor, device.deviceDescriptor.idProduct),
+      deviceType: this.getDeviceType(device),
+      serialNumber: device.deviceDescriptor.iSerialNumber
     };
   }
 
+  // 获取厂商名称（简化版）
+  getVendorName(vendorId) {
+    const vendors = {
+      0x03F0: 'HP',
+      0x04A9: 'Canon',
+      0x04B8: 'Epson',
+      0x04F9: 'Brother',
+      0x067B: 'Prolific',
+      0x0922: 'Samsung'
+    };
+    return vendors[vendorId] || `Vendor_0x${vendorId.toString(16).toUpperCase()}`;
+  }
+
+  // 获取产品名称（简化版）
+  getProductName(vendorId, productId) {
+    return `Product_0x${productId.toString(16).toUpperCase()}`;
+  }
+
   // 判断设备类型
-  getDeviceType(descriptor) {
-    // 常见打印机厂商ID
-    const printerVendors = [
-      0x04b8, // Epson
-      0x04a9, // Canon
-      0x0922, // Xprinter
-      0x0483, // Gainscha
-      0x0416, // Winpos
-      0x0fe6  // Bixolon
-    ];
-    
-    if (printerVendors.includes(descriptor.idVendor)) {
-      return 'printer';
+  getDeviceType(device) {
+    if (!device || !device.deviceDescriptor) {
+      return 'unknown';
     }
     
-    // 可以根据设备类别代码进一步判断
-    if (descriptor.bDeviceClass === 7) {
+    // 简化的设备类型判断
+    if (device.deviceDescriptor.bDeviceClass === 7) {
       return 'printer';
     }
-    
-    return 'other';
+    return 'unknown';
   }
 
   // 判断是否是打印机设备
   isPrinterDevice(device) {
-    const descriptor = device.deviceDescriptor;
-    
-    // 打印机设备类别代码
-    if (descriptor.bDeviceClass === 7) {
-      return true;
-    }
-    
-    // 常见打印机厂商
-    const printerVendors = [
-      0x04b8, 0x04a9, 0x0922, 0x0483, 0x0416, 0x0fe6
-    ];
-    
-    return printerVendors.includes(descriptor.idVendor);
-  }
-
-  // 检测USB打印机
-  async detectUsbPrinters() {
-    const devices = this.scanDevices();
-    return devices.filter(device => device.deviceType === 'printer');
-  }
-
-  // 获取特定厂商的设备
-  getDevicesByVendor(vendorId) {
-    return Array.from(this.devices.values())
-      .filter(d => d.info.vendorId === vendorId)
-      .map(d => d.info);
-  }
-
-  // 设置设备变化回调
-  setDeviceChangeCallback(callback) {
-    this.onDeviceChange = callback;
+    return this.getDeviceType(device) === 'printer';
   }
 
   // 通知打印机检测到
   notifyPrinterDetected(deviceInfo) {
-    // 这里可以发送 IPC 消息到渲染进程
-    // 或者执行其他处理逻辑
-    console.log('打印机设备通知:', deviceInfo);
+    // 这里可以发送IPC消息到渲染进程
+    console.log('USB打印机检测到:', deviceInfo);
+  }
+
+  // 检测USB打印机
+  async detectUsbPrinters() {
+    try {
+      const devices = this.scanDevices();
+      return devices.filter(device => this.isPrinterDevice(device.device));
+    } catch (error) {
+      console.error('检测USB打印机失败:', error);
+      return [];
+    }
+  }
+
+  // 设置设备变化回调
+  setOnDeviceChange(callback) {
+    this.onDeviceChange = callback;
   }
 }
 

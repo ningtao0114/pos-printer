@@ -107,8 +107,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import { message, Modal } from 'ant-design-vue';
+import { ref, computed, onMounted, h } from 'vue';
+import { message, Modal, Tag } from 'ant-design-vue';
 import {
   PrinterOutlined,
   ReloadOutlined,
@@ -147,7 +147,7 @@ const usbColumns = [
         error: { text: '错误', color: 'orange' }
       };
       const status = statusMap[text] || { text, color: 'gray' };
-      return <a-tag color={status.color}>{status.text}</a-tag>;
+      return h(Tag, { color: status.color }, () => status.text);
     }
   },
   {
@@ -156,8 +156,8 @@ const usbColumns = [
     key: 'driverInstalled',
     render: (installed) => {
       return installed ? 
-        <a-tag color="green">已安装</a-tag> : 
-        <a-tag color="red">未安装</a-tag>;
+        h(Tag, { color: 'green' }, () => '已安装') : 
+        h(Tag, { color: 'red' }, () => '未安装');
     }
   }
 ];
@@ -203,6 +203,16 @@ const getStatusText = (status) => {
 const refreshPrinters = async () => {
   loading.value = true;
   try {
+    // 检查主进程是否就绪
+    const isReady = await window.electronAPI.isMainProcessReady();
+    if (!isReady) {
+      console.log('主进程未就绪，将在2秒后重试...');
+      setTimeout(() => {
+        refreshPrinters();
+      }, 2000);
+      return;
+    }
+    
     const result = await window.electronAPI.getPrinters();
     printers.value = result.allPrinters || [];
     
@@ -218,7 +228,15 @@ const refreshPrinters = async () => {
     
     message.success('打印机列表已刷新');
   } catch (error) {
-    message.error('获取打印机列表失败: ' + error.message);
+    if (error.message.includes('打印机管理器未初始化')) {
+      // 打印机管理器未初始化，稍后重试
+      console.log('打印机管理器未就绪，将在2秒后重试...');
+      setTimeout(() => {
+        refreshPrinters();
+      }, 2000);
+    } else {
+      message.error('获取打印机列表失败: ' + error.message);
+    }
   } finally {
     loading.value = false;
   }

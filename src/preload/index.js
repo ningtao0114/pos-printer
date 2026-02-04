@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // 初始化检查
+  isMainProcessReady: () => ipcRenderer.invoke('is-main-process-ready'),
+  
   // 打印机相关
   getPrinters: () => ipcRenderer.invoke('get-printers'),
   checkPrinterStatus: () => ipcRenderer.invoke('check-printer-status'),

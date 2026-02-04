@@ -320,6 +320,16 @@ const loadPrinters = async () => {
   
   loadingPrinters.value = true;
   try {
+    // 检查主进程是否就绪
+    const isReady = await window.electronAPI.isMainProcessReady();
+    if (!isReady) {
+      console.log('主进程未就绪，将在2秒后重试...');
+      setTimeout(() => {
+        loadPrinters();
+      }, 2000);
+      return;
+    }
+    
     const result = await window.electronAPI.getPrinters();
     availablePrinters.value = result.allPrinters || [];
     
@@ -329,7 +339,15 @@ const loadPrinters = async () => {
       formState.printer = defaultPrinter.name;
     }
   } catch (error) {
-    message.error('加载打印机失败: ' + error.message);
+    if (error.message.includes('打印机管理器未初始化')) {
+      // 打印机管理器未初始化，稍后重试
+      console.log('打印机管理器未就绪，将在2秒后重试...');
+      setTimeout(() => {
+        loadPrinters();
+      }, 2000);
+    } else {
+      message.error('加载打印机失败: ' + error.message);
+    }
   } finally {
     loadingPrinters.value = false;
   }
